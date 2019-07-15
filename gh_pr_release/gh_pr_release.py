@@ -80,7 +80,7 @@ def merged_pull_requests(
     for pr in pulls:
         if pr.merge_commit_sha in hashes:
             pr_list.append(pr)
-    return reversed(pr_list)
+    return pr_list
 
 
 def release_pull_request(
