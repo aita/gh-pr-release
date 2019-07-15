@@ -3,6 +3,14 @@ name = "gh-pr-release"
 version = "0.1.0"
 description = "A command line tool which creates a release pull request"
 authors = ["aita <792803+aita@users.noreply.github.com>"]
+homepage = "https://github.com/aita/gh-pr-release"
+repository = "https://github.com/aita/gh-pr-release"
+keywords = ["git", "github"]
+classifiers = [
+        'License :: OSI Approved :: Apache Software License',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 3.7'
+]
 
 
 [tool.poetry.dependencies]
