@@ -5,7 +5,7 @@ import github
 
 from .gh_pr_release import (
     Context,
-    gh_token,
+    github_token,
     merged_pull_requests,
     release_pull_request,
     create_release_pull_request,
@@ -24,7 +24,7 @@ logger.addHandler(handler)
 @click.option("--path", default=".")
 def main(path):
     cmd = git.cmd.Git(path)
-    token = gh_token(cmd)
+    token = github_token(cmd)
     gh = github.Github(token)
     ctx = Context(path, cmd, gh)
 

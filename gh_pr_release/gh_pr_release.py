@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import StringIO
-from typing import Iterable, Set, List, Optional
+from typing import List, Optional
 
 
 RE_PR_REF = re.compile(r"refs/pull/(?P<number>\d+)/head")
@@ -38,7 +38,7 @@ class Context:
         self.gh_repo = self.gh.get_repo(f"{self.owner}/{self.name}")
 
 
-def gh_token(cmd: git.cmd.Git) -> str:
+def github_token(cmd: git.cmd.Git) -> str:
     return get_config(cmd, "gh-pr-release.token")
 
 
@@ -47,7 +47,7 @@ def get_config(
     key: str,
     default: Optional[str] = None,
     gh_pr_release: bool = True,
-):
+) -> str:
     if gh_pr_release:
         try:
             return cmd.config("--get", "--file", ".gh-pr-release", key)
@@ -61,43 +61,19 @@ def get_config(
         raise
 
 
-def merged_commit_hashes(ctx: Context) -> Iterable[str]:
-    out = ctx.cmd.log(
-        "--merges", "--pretty=format:%P", f"origin/{ctx.base}..origin/{ctx.head}"
-    )
-    if out == "":
-        return
-    for line in out.split("\n"):
-        main, feature = line.split()
-        yield feature
-
-
-def merged_pull_request_numbers(ctx: Context, hashes: Set[str]) -> Iterable[int]:
-    out = ctx.cmd.ls_remote("origin", "refs/pull/*/head")
-    if out == "":
-        return
-    for line in out.split("\n"):
-        sha1, ref = line.split()
-        if sha1 not in hashes:
-            continue
-        m = RE_PR_REF.match(ref)
-        if m:
-            pr_number = int(m.group("number"))
-            if sha1 != ctx.cmd.merge_base(sha1, f"origin/{ctx.base}").strip():
-                yield pr_number
-
-
 def merged_pull_requests(
     ctx: Context
 ) -> List[github.IssuePullRequest.IssuePullRequest]:
-    hashes = set(merged_commit_hashes(ctx))
-    pr_numbers = merged_pull_request_numbers(ctx, hashes)
+    commits = ctx.gh_repo.compare(ctx.base, ctx.head).commits
+    hashes = [c.sha for c in commits]
     pr_list = []
-    for pr_number in pr_numbers:
-        pr = ctx.gh_repo.get_pull(pr_number)
-        if pr.merged:
+    pulls = ctx.gh_repo.get_pulls(
+        state="closed", base=ctx.head, sort="created", direction="desc"
+    )
+    for pr in pulls:
+        if pr.merge_commit_sha in hashes:
             pr_list.append(pr)
-    return pr_list
+    return reversed(pr_list)
 
 
 def release_pull_request(
