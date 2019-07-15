@@ -2,6 +2,7 @@ import click
 import logging
 import git
 import github
+import operator
 
 from .gh_pr_release import (
     Context,
@@ -25,11 +26,14 @@ logger.addHandler(handler)
 def main(path):
     cmd = git.cmd.Git(path)
     token = github_token(cmd)
-    gh = github.Github(token)
+    gh = github.Github(token, per_page=100)
     ctx = Context(path, cmd, gh)
 
     pr_list = merged_pull_requests(ctx)
-    for pr in pr_list:
+    if not pr_list:
+        logger.info(f"No commits between {ctx.base} and {ctx.head}")
+        return
+    for pr in sorted(pr_list, key=operator.attrgetter("created_at")):
         logger.info(f"To be released: #{pr.number} {pr.title}")
 
     release_pr = release_pull_request(ctx)
