@@ -24,10 +24,9 @@ logger.addHandler(handler)
 @click.command()
 @click.option("--path", default=".")
 def main(path):
-    cmd = git.cmd.Git(path)
-    token = github_token(cmd)
+    token = github_token(path)
     gh = github.Github(token, per_page=100)
-    ctx = Context(path, cmd, gh)
+    ctx = Context(path, gh)
 
     pr_list = merged_pull_requests(ctx)
     if not pr_list:

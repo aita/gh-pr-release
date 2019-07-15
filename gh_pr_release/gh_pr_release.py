@@ -2,9 +2,11 @@ import git
 import github
 
 import re
+from configparser import NoOptionError, NoSectionError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import StringIO
+from pathlib import Path
 from typing import List, Optional
 
 
@@ -18,44 +20,47 @@ RE_TASK_LIST = re.compile(r"(-|\*)\s+\[x\]\s+#(?P<number>\d+)")
 @dataclass
 class Context:
     path: str
-    cmd: git.cmd.Git
     gh: github.Github
     head: str = "develop"
     base: str = "master"
     owner: str = field(init=False)
     name: str = field(init=False)
-    gh_repo: github.Repository = field(init=False)
+    repo: github.Repository = field(init=False)
 
     def __post_init__(self):
-        self.head = get_config(self.cmd, "gh-pr-release.branch.head", default=self.head)
-        self.base = get_config(self.cmd, "gh-pr-release.base", default=self.base)
+        self.head = get_config(
+            self.path, 'gh-pr-release "branch".head', default=self.head
+        )
+        self.base = get_config(self.path, "gh-pr-release.base", default=self.base)
 
-        remote_url = get_config(self.cmd, "remote.origin.url", gh_pr_release=False)
+        remote_url = get_config(self.path, 'remote "origin".url', gh_pr_release=False)
         m = RE_REMOTE_URL.match(remote_url)
         d = m.groupdict()
         self.owner = d["owner"]
         self.name = d["name"]
-        self.gh_repo = self.gh.get_repo(f"{self.owner}/{self.name}")
+        self.repo = self.gh.get_repo(f"{self.owner}/{self.name}")
 
 
-def github_token(cmd: git.cmd.Git) -> str:
-    return get_config(cmd, "gh-pr-release.token")
+def github_token(path: str) -> str:
+    return get_config(path, "gh-pr-release.token")
 
 
 def get_config(
-    cmd: git.cmd.Git,
-    key: str,
-    default: Optional[str] = None,
-    gh_pr_release: bool = True,
+    path: str, key: str, default: Optional[str] = None, gh_pr_release: bool = True
 ) -> str:
+    def _get_config(cfg):
+        return cfg.get(*key.rsplit(".", 1))
+
     if gh_pr_release:
         try:
-            return cmd.config("--get", "--file", ".gh-pr-release", key)
-        except git.GitCommandError:
+            return _get_config(
+                git.GitConfigParser(Path(path, ".gh-pr-release").as_posix())
+            )
+        except (NoSectionError, NoOptionError):
             pass
     try:
-        return cmd.config("--get", key)
-    except git.GitCommandError:
+        return _get_config(git.Repo(path).config_reader())
+    except (NoSectionError, NoOptionError):
         if default:
             return default
         raise
@@ -64,10 +69,10 @@ def get_config(
 def merged_pull_requests(
     ctx: Context
 ) -> List[github.IssuePullRequest.IssuePullRequest]:
-    commits = ctx.gh_repo.compare(ctx.base, ctx.head).commits
+    commits = ctx.repo.compare(ctx.base, ctx.head).commits
     hashes = [c.sha for c in commits]
     pr_list = []
-    pulls = ctx.gh_repo.get_pulls(
+    pulls = ctx.repo.get_pulls(
         state="closed", base=ctx.head, sort="created", direction="desc"
     )
     for pr in pulls:
@@ -79,7 +84,7 @@ def merged_pull_requests(
 def release_pull_request(
     ctx: Context
 ) -> Optional[github.IssuePullRequest.IssuePullRequest]:
-    result = ctx.gh_repo.get_pulls(
+    result = ctx.repo.get_pulls(
         state="open",
         sort="created",
         direction="desc",
@@ -95,7 +100,7 @@ def create_release_pull_request(
     ctx: Context, pr_list: List[github.IssuePullRequest.IssuePullRequest]
 ) -> github.IssuePullRequest.IssuePullRequest:
     now = datetime.now(timezone.utc).astimezone()
-    return ctx.gh_repo.create_pull(
+    return ctx.repo.create_pull(
         title=f"Release {now:%Y-%m-%d %H:%M:%S %z}",
         body=pull_request_description(pr_list),
         base=ctx.base,
