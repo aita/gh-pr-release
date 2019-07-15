@@ -31,7 +31,9 @@ class Context:
         self.head = get_config(
             self.path, 'gh-pr-release "branch".head', default=self.head
         )
-        self.base = get_config(self.path, "gh-pr-release.base", default=self.base)
+        self.base = get_config(
+            self.path, 'gh-pr-release "branch".base', default=self.base
+        )
 
         remote_url = get_config(self.path, 'remote "origin".url', gh_pr_release=False)
         m = RE_REMOTE_URL.match(remote_url)
