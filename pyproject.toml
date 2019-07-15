@@ -1,7 +1,8 @@
 [tool.poetry]
 name = "gh-pr-release"
-version = "0.1.0"
+version = "0.1.1"
 description = "A command line tool which creates a release pull request"
+readme = "README.md"
 authors = ["aita <792803+aita@users.noreply.github.com>"]
 homepage = "https://github.com/aita/gh-pr-release"
 repository = "https://github.com/aita/gh-pr-release"
