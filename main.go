@@ -56,13 +56,14 @@ func init() {
 }
 
 type Config struct {
-	Token string `validate:"-"`
-	Owner string `validate:"required"`
-	Repo  string `validate:"required"`
-	Base  string `validate:"required"`
-	Head  string `validate:"required"`
-	Title string `validate:"required"`
-	Body  string `validate:"required"`
+	Token  string   `validate:"-"`
+	Owner  string   `validate:"required"`
+	Repo   string   `validate:"required"`
+	Base   string   `validate:"required"`
+	Head   string   `validate:"required"`
+	Title  string   `validate:"required"`
+	Body   string   `validate:"required"`
+	Labels []string `validate:"-"`
 }
 
 func loadConfig(localConfigPath string) (cfg Config, err error) {
@@ -288,8 +289,10 @@ func main() {
 		log.Fatal(err)
 	}
 	var releasePR *github.PullRequest
+	alreadyExists := false
 	if len(prs) > 0 {
 		releasePR = prs[0]
+		alreadyExists = true
 	}
 	checked := map[int]bool{}
 	if releasePR != nil {
@@ -320,7 +323,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if releasePR != nil {
+	if alreadyExists {
 		// Update an existing pull request
 		releasePR.Title = &title
 		releasePR.Body = &body
@@ -328,10 +331,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("Updated pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
 	} else {
-		// Create a new release pull request
-		releasePR, _, err := client.PullRequests.Create(context.Background(), cfg.Owner, cfg.Repo, &github.NewPullRequest{
+		// Create a new pull request
+		releasePR, _, err = client.PullRequests.Create(context.Background(), cfg.Owner, cfg.Repo, &github.NewPullRequest{
 			Title: &title,
 			Body:  &body,
 			Head:  &cfg.Head,
@@ -340,6 +342,19 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+
+	if len(cfg.Labels) > 0 {
+		// Add labels to the pull request
+		_, _, err := client.Issues.AddLabelsToIssue(context.Background(), cfg.Owner, cfg.Repo, releasePR.GetNumber(), cfg.Labels)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if alreadyExists {
+		log.Printf("Updated pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
+	} else {
 		log.Printf("Created pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
 	}
 }
