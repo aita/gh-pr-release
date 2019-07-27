@@ -28,10 +28,9 @@ import (
 )
 
 const (
-	appName   = "gh-pr-release"
-	envPrefix = "gh_pr_release"
-	title     = `Release {{.ReleaseAt.Format "2006-01-02 15:04:05 -0700"}}`
-	body      = `{{ range .PullRequests }}* [{{if .Checked}}x{{else}} {{end}}] #{{ .Number }} {{ .Title }}
+	appName = "gh-pr-release"
+	title   = `Release {{.ReleaseAt.Format "2006-01-02 15:04:05 -0700"}}`
+	body    = `{{ range .PullRequests }}* [{{if .Checked}}x{{else}} {{end}}] #{{ .Number }} {{ .Title }}
 {{ end }}`
 )
 
@@ -82,7 +81,7 @@ func loadConfig(localConfigPath string) (cfg Config, err error) {
 			return
 		}
 	}
-	if err = envconfig.Process(envPrefix, &cfg); err != nil {
+	if err = envconfig.Process(strings.ReplaceAll(appName, "-", "_"), &cfg); err != nil {
 		return
 	}
 	return
@@ -157,33 +156,6 @@ func saveToken(token string) (err error) {
 	return
 }
 
-type PullRequest struct {
-	*github.PullRequest
-	Checked bool
-}
-
-func renderTemplate(name, text string, cfg Config, releaseAt time.Time, pullRequests []PullRequest) (string, error) {
-	pr := struct {
-		Config
-		ReleaseAt    time.Time
-		PullRequests []PullRequest
-	}{
-		Config:       cfg,
-		ReleaseAt:    releaseAt,
-		PullRequests: pullRequests,
-	}
-	tmpl, err := template.New(name).Parse(text)
-	if err != nil {
-		return "", err
-	}
-	buf := bytes.NewBuffer(nil)
-	err = tmpl.Execute(buf, pr)
-	if err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
 func mergedPullRequests(ctx context.Context, cfg Config, client *github.Client) ([]*github.PullRequest, error) {
 	// List merged pull requests into the base branch
 	comparison, _, err := client.Repositories.CompareCommits(context.Background(), cfg.Owner, cfg.Repo, cfg.Base, cfg.Head)
@@ -226,6 +198,70 @@ func mergedPullRequests(ctx context.Context, cfg Config, client *github.Client) 
 		return mergedPRs[i].GetNumber() < mergedPRs[j].GetNumber()
 	})
 	return mergedPRs, nil
+}
+
+type PullRequest struct {
+	*github.PullRequest
+	Checked bool
+}
+
+type Description struct {
+	Title string
+	Body  string
+}
+
+func buildDescription(cfg Config, mergedPRs []*github.PullRequest, releasePR *github.PullRequest) (desc Description, err error) {
+	checked := map[int]bool{}
+	if releasePR != nil {
+		log.Printf("An existing release pull request #%d found", releasePR.GetNumber())
+
+		reg := regexp.MustCompile(`(-|\*) *\[x\] *\#(\d+)`)
+		for _, groups := range reg.FindAllStringSubmatch(releasePR.GetBody(), -1) {
+			n, _ := strconv.Atoi(groups[2])
+			checked[n] = true
+		}
+	}
+
+	// Create title and body of the release pull request
+	releaseAt := time.Now()
+	pullRequests := []PullRequest{}
+	for _, pr := range mergedPRs {
+		pullRequests = append(pullRequests, PullRequest{
+			PullRequest: pr,
+			Checked:     checked[pr.GetNumber()],
+		})
+	}
+	desc.Title, err = renderTemplate("title", cfg.Title, cfg, releaseAt, pullRequests)
+	if err != nil {
+		return
+	}
+	desc.Body, err = renderTemplate("body", cfg.Body, cfg, releaseAt, pullRequests)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func renderTemplate(name, text string, cfg Config, releaseAt time.Time, pullRequests []PullRequest) (string, error) {
+	pr := struct {
+		Config
+		ReleaseAt    time.Time
+		PullRequests []PullRequest
+	}{
+		Config:       cfg,
+		ReleaseAt:    releaseAt,
+		PullRequests: pullRequests,
+	}
+	tmpl, err := template.New(name).Parse(text)
+	if err != nil {
+		return "", err
+	}
+	buf := bytes.NewBuffer(nil)
+	err = tmpl.Execute(buf, pr)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func main() {
@@ -289,72 +325,45 @@ func main() {
 		log.Fatal(err)
 	}
 	var releasePR *github.PullRequest
-	alreadyExists := false
 	if len(prs) > 0 {
-		releasePR = prs[0]
-		alreadyExists = true
-	}
-	checked := map[int]bool{}
-	if releasePR != nil {
 		log.Printf("An existing release pull request #%d found", releasePR.GetNumber())
-
-		reg := regexp.MustCompile(`(-|\*) *\[x\] *\#(\d+)`)
-		for _, groups := range reg.FindAllStringSubmatch(releasePR.GetBody(), -1) {
-			n, _ := strconv.Atoi(groups[2])
-			checked[n] = true
-		}
+		releasePR = prs[0]
 	}
 
-	// Create title and body of the release pull request
-	releaseAt := time.Now()
-	pullRequests := []PullRequest{}
-	for _, pr := range mergedPRs {
-		pullRequests = append(pullRequests, PullRequest{
-			PullRequest: pr,
-			Checked:     checked[pr.GetNumber()],
-		})
-	}
-	title, err := renderTemplate("title", cfg.Title, cfg, releaseAt, pullRequests)
+	desc, err := buildDescription(cfg, mergedPRs, releasePR)
 	if err != nil {
 		log.Fatal(err)
 	}
-	body, err := renderTemplate("body", cfg.Body, cfg, releaseAt, pullRequests)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if alreadyExists {
+	if releasePR != nil {
 		// Update an existing pull request
-		releasePR.Title = &title
-		releasePR.Body = &body
+		releasePR.Title = &desc.Title
+		releasePR.Body = &desc.Body
 		_, _, err := client.PullRequests.Edit(context.Background(), cfg.Owner, cfg.Repo, releasePR.GetNumber(), releasePR)
 		if err != nil {
 			log.Fatal(err)
 		}
+		log.Printf("Updated pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
 	} else {
 		// Create a new pull request
 		releasePR, _, err = client.PullRequests.Create(context.Background(), cfg.Owner, cfg.Repo, &github.NewPullRequest{
-			Title: &title,
-			Body:  &body,
+			Title: &desc.Title,
+			Body:  &desc.Body,
 			Head:  &cfg.Head,
 			Base:  &cfg.Base,
 		})
 		if err != nil {
 			log.Fatal(err)
 		}
+		log.Printf("Created pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
 	}
 
 	if len(cfg.Labels) > 0 {
+		log.Println("Add lables to the pull request")
+
 		// Add labels to the pull request
 		_, _, err := client.Issues.AddLabelsToIssue(context.Background(), cfg.Owner, cfg.Repo, releasePR.GetNumber(), cfg.Labels)
 		if err != nil {
 			log.Fatal(err)
 		}
-	}
-
-	if alreadyExists {
-		log.Printf("Updated pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
-	} else {
-		log.Printf("Created pull request #%d: %s", releasePR.GetNumber(), releasePR.GetURL())
 	}
 }
