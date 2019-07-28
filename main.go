@@ -18,6 +18,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Songmu/prompter"
+	"github.com/aita/go-diff-lcs/diff"
 	"github.com/google/go-github/v27/github"
 	"github.com/kelseyhightower/envconfig"
 	homedir "github.com/mitchellh/go-homedir"
@@ -30,7 +31,7 @@ import (
 const (
 	appName = "gh-pr-release"
 	title   = `Release {{.ReleaseAt.Format "2006-01-02 15:04:05 -0700"}}`
-	body    = `{{ range .PullRequests }}* [{{if .Checked}}x{{else}} {{end}}] #{{ .Number }} {{ .Title }}
+	body    = `{{ range .PullRequests }}* [ ] #{{ .Number }} {{ .Title }} @{{ .User.Login }}
 {{ end }}`
 )
 
@@ -156,7 +157,7 @@ func saveToken(token string) (err error) {
 	return
 }
 
-func mergedPullRequests(ctx context.Context, cfg Config, client *github.Client) ([]*github.PullRequest, error) {
+func findMergedPullRequests(ctx context.Context, cfg Config, client *github.Client) ([]*github.PullRequest, error) {
 	// List merged pull requests into the base branch
 	comparison, _, err := client.Repositories.CompareCommits(context.Background(), cfg.Owner, cfg.Repo, cfg.Base, cfg.Head)
 	if err != nil {
@@ -200,53 +201,72 @@ func mergedPullRequests(ctx context.Context, cfg Config, client *github.Client) 
 	return mergedPRs, nil
 }
 
-type PullRequest struct {
-	*github.PullRequest
-	Checked bool
-}
-
 type Description struct {
 	Title string
 	Body  string
 }
 
-func buildDescription(cfg Config, mergedPRs []*github.PullRequest, releasePR *github.PullRequest) (desc Description, err error) {
+func buildDescription(cfg Config, mergedPRs []*github.PullRequest, releasePR *github.PullRequest, releaseAt time.Time) (desc Description, err error) {
+	regChecked := regexp.MustCompile(`\* +\[x\] +\#(\d+)`)
 	checked := map[int]bool{}
 	if releasePR != nil {
-		log.Printf("An existing release pull request #%d found", releasePR.GetNumber())
-
-		reg := regexp.MustCompile(`(-|\*) *\[x\] *\#(\d+)`)
-		for _, groups := range reg.FindAllStringSubmatch(releasePR.GetBody(), -1) {
-			n, _ := strconv.Atoi(groups[2])
+		for _, groups := range regChecked.FindAllStringSubmatch(releasePR.GetBody(), -1) {
+			n, _ := strconv.Atoi(groups[1])
 			checked[n] = true
 		}
 	}
 
 	// Create title and body of the release pull request
-	releaseAt := time.Now()
-	pullRequests := []PullRequest{}
-	for _, pr := range mergedPRs {
-		pullRequests = append(pullRequests, PullRequest{
-			PullRequest: pr,
-			Checked:     checked[pr.GetNumber()],
-		})
-	}
-	desc.Title, err = renderTemplate("title", cfg.Title, cfg, releaseAt, pullRequests)
+	desc.Title, err = renderTemplate("title", cfg.Title, cfg, releaseAt, mergedPRs)
 	if err != nil {
 		return
 	}
-	desc.Body, err = renderTemplate("body", cfg.Body, cfg, releaseAt, pullRequests)
+
+	oldBody := strings.TrimSpace(releasePR.GetBody())
+	oldBodyLines := strings.Split(strings.ReplaceAll(regChecked.ReplaceAllString(oldBody, `* [ ] #$1`), "\r\n", "\n"), "\n")
+	newBody, err := renderTemplate("body", cfg.Body, cfg, releaseAt, mergedPRs)
 	if err != nil {
 		return
 	}
+	newBodyLines := strings.Split(strings.ReplaceAll(strings.TrimSpace(newBody), "\r\n", "\n"), "\n")
+	var lines []string
+	regCheckPrefix := regexp.MustCompile(`\* +\[ \]`)
+	for _, ch := range diff.TraverseBalanced(oldBodyLines, newBodyLines) {
+		switch ch.Action {
+		case diff.ActionAdd, diff.ActionEqual:
+			lines = append(lines, ch.NewElement)
+		case diff.ActionDelete:
+			lines = append(lines, ch.OldElement)
+		case diff.ActionChange:
+			if regCheckPrefix.MatchString(ch.OldElement) && regCheckPrefix.MatchString(ch.NewElement) {
+				lines = append(lines, ch.OldElement)
+			} else {
+				lines = append(lines, ch.OldElement)
+				lines = append(lines, ch.NewElement)
+			}
+		}
+	}
+
+	regCheckList := regexp.MustCompile(`\* +\[ \] +\#(\d+)`)
+	for i, line := range lines {
+		groups := regCheckList.FindStringSubmatch(line)
+		if len(groups) == 0 {
+			continue
+		}
+		n, _ := strconv.Atoi(groups[1])
+		if checked[n] {
+			lines[i] = regCheckList.ReplaceAllString(line, `* [x] #$1`)
+		}
+	}
+	desc.Body = strings.Join(lines, "\n")
 	return
 }
 
-func renderTemplate(name, text string, cfg Config, releaseAt time.Time, pullRequests []PullRequest) (string, error) {
+func renderTemplate(name, text string, cfg Config, releaseAt time.Time, pullRequests []*github.PullRequest) (string, error) {
 	pr := struct {
 		Config
 		ReleaseAt    time.Time
-		PullRequests []PullRequest
+		PullRequests []*github.PullRequest
 	}{
 		Config:       cfg,
 		ReleaseAt:    releaseAt,
@@ -303,7 +323,7 @@ func main() {
 	client := github.NewClient(tc)
 
 	// List pull requests which merged into the head branch
-	mergedPRs, err := mergedPullRequests(context.Background(), cfg, client)
+	mergedPRs, err := findMergedPullRequests(context.Background(), cfg, client)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -326,11 +346,12 @@ func main() {
 	}
 	var releasePR *github.PullRequest
 	if len(prs) > 0 {
-		log.Printf("An existing release pull request #%d found", releasePR.GetNumber())
 		releasePR = prs[0]
+		log.Printf("An existing release pull request #%d found", releasePR.GetNumber())
 	}
 
-	desc, err := buildDescription(cfg, mergedPRs, releasePR)
+	releaseAt := time.Now()
+	desc, err := buildDescription(cfg, mergedPRs, releasePR, releaseAt)
 	if err != nil {
 		log.Fatal(err)
 	}

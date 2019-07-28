@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/BurntSushi/xdg v0.0.0-20130804141135-e80d3446fea1
 	github.com/Songmu/prompter v0.2.0
+	github.com/aita/go-diff-lcs v0.0.0-20190728053457-57dc719c1a49
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-playground/locales v0.12.1 // indirect
 	github.com/go-playground/universal-translator v0.16.0 // indirect
@@ -15,7 +16,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/pkg/errors v0.8.1
 	github.com/spf13/pflag v1.0.3
-	github.com/stretchr/testify v1.3.0 // indirect
+	github.com/stretchr/testify v1.3.0
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20190506204251-e1dfcc566284 // indirect

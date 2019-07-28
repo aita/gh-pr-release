@@ -5,6 +5,8 @@ github.com/BurntSushi/xdg v0.0.0-20130804141135-e80d3446fea1 h1:wm6oM17JoxfyN6Iu
 github.com/BurntSushi/xdg v0.0.0-20130804141135-e80d3446fea1/go.mod h1:GTqQ4bvL7tTmcOwcZ3VVzwjWulHgjD2uamy76yuySp0=
 github.com/Songmu/prompter v0.2.0 h1:ukZciW4j83c9oY7PjS6KmETrDERkyooeyqeCK+eHBmw=
 github.com/Songmu/prompter v0.2.0/go.mod h1:QVxQF8a9zg3b/dIAVGMvMzBHQICWPZ0z6b29ltuwKK4=
+github.com/aita/go-diff-lcs v0.0.0-20190728053457-57dc719c1a49 h1:wqfnoxBNUwcS5aFwRvR29O0gB63PqALPHCh89oCegQk=
+github.com/aita/go-diff-lcs v0.0.0-20190728053457-57dc719c1a49/go.mod h1:705aodXmGJGtC+uWM4H7NoFFh1/z++g23UzcFVaZoLQ=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
