@@ -217,14 +217,14 @@ func buildDescription(cfg Config, mergedPRs []*github.PullRequest, releasePR *gi
 	}
 
 	// Create title and body of the release pull request
-	desc.Title, err = renderTemplate("title", cfg.Title, cfg, releaseAt, mergedPRs)
+	desc.Title, err = renderTemplate("title", cfg.Title, releaseAt, mergedPRs)
 	if err != nil {
 		return
 	}
 
 	oldBody := strings.TrimSpace(releasePR.GetBody())
 	oldBodyLines := strings.Split(strings.ReplaceAll(regChecked.ReplaceAllString(oldBody, `* [ ] #$1`), "\r\n", "\n"), "\n")
-	newBody, err := renderTemplate("body", cfg.Body, cfg, releaseAt, mergedPRs)
+	newBody, err := renderTemplate("body", cfg.Body, releaseAt, mergedPRs)
 	if err != nil {
 		return
 	}
@@ -262,13 +262,11 @@ func buildDescription(cfg Config, mergedPRs []*github.PullRequest, releasePR *gi
 	return
 }
 
-func renderTemplate(name, text string, cfg Config, releaseAt time.Time, pullRequests []*github.PullRequest) (string, error) {
+func renderTemplate(name, text string, releaseAt time.Time, pullRequests []*github.PullRequest) (string, error) {
 	pr := struct {
-		Config
 		ReleaseAt    time.Time
 		PullRequests []*github.PullRequest
 	}{
-		Config:       cfg,
 		ReleaseAt:    releaseAt,
 		PullRequests: pullRequests,
 	}
